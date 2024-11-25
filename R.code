@@ -7,7 +7,6 @@
 #msa
 #tidyverse
 
-
 #____________________________________________________________________________________________
 #Load MSA
 tropomyosin_msa <- readAAStringSet("~/Documents/School/Fall 2024/BIOL 469/Genomics Final Project /Final Work /Tropomyosin_MSA_Edit .fst")
@@ -21,7 +20,6 @@ BLOUSM62 <- data("BLOSUM62")
 
 #Define Gap score 
 gap_score <- -1
-
 
 #Function for conservation 
 calculate_conservation <- function(msa_set) {
@@ -70,7 +68,6 @@ calculate_conservation <- function(msa_set) {
   return(list(Conservation = conservation, CommonResidues = common_residues))
 }
 
-
 #Apply Function 
 result_allergenic <- calculate_conservation(allergenic_msa)
 results_non_allergenic <- calculate_conservation(non_allergenic_msa)
@@ -110,7 +107,6 @@ calculate_residue_frequencies <- function(msa_set) {
   
   return(residue_frequencies)
 }
-
 
 #Calculate residue Frequency 
 non_alergenic_frequency <- calculate_residue_frequencies (non_allergenic_msa)
@@ -259,12 +255,7 @@ Significant_sequences_df1 <- Significant_sequences_df1 %>%
     different_bases_refined1 %>% select(Position, Allergenic_p_value),  # Select relevant columns
     by = "Position"  # Match by Position
   )
-
-
-
 #_______________________________________________________________________________________
-
-
 #plotting 
 
 #Differential Conservation 
@@ -284,8 +275,6 @@ Diff_Conservation <- Tropomyosin_Comparison_edit %>%
 Diff_Conservation_clean <- Diff_Conservation_clean %>%
   filter(Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
 
-
-
 #diff conservation 
 ggplot(Diff_Conservation_clean, aes(x = Position, y = Conservation, color = Group)) +
   geom_line() +
@@ -300,7 +289,6 @@ ggplot(Diff_Conservation_clean, aes(x = Position, y = Conservation, color = Grou
     legend.title = element_text(size = 15),            # Legend title size
     legend.text = element_text(size = 12)              # Legend text size
   )
-
 
 #plot diff conservation at regiosn with diffrent most common base 
 diff_base_conservation <- Diff_Conservation_clean |>
@@ -320,14 +308,10 @@ ggplot(diff_base_conservation, aes(x = Position, y = Conservation, color = Group
     legend.text = element_text(size = 12)              # Legend text size
   )
 
-
-
 #remove gaps from diff bases data 
 
 diff_bases_refined_clean <- different_bases_refined1 |>
   filter(Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
-
-
 
 # Plot BLOSUM62 scores for positions with different most common bases
 ggplot(diff_bases_refined_clean, aes(x = Position, y = BLOSUM62_Score)) +
