@@ -181,19 +181,24 @@ non_allergenic_matrix <- as.matrix(non_allergenic_msa)
 different_bases_refined1 <- different_bases %>%
   rowwise() %>%
   mutate(
-    Allergenic_p_value = if (Allergenic_Common_Base == "-") NA else binom.test(
-      x = sum(allergenic_matrix[, Position] == Allergenic_Common_Base, na.rm = TRUE),
-      n = nrow(allergenic_matrix),
-      p = aa_background_frequencies[Allergenic_Common_Base]
-    )$p.value,
+    # Allergenic Chi-Square Test
+    Allergenic_p_value = if (Allergenic_Common_Base == "-") NA else {
+      observed_count <- sum(allergenic_matrix[, Position] == Allergenic_Common_Base, na.rm = TRUE)
+      expected_count <- nrow(allergenic_matrix) * aa_background_frequencies[Allergenic_Common_Base]
+      chi_square_stat <- (observed_count - expected_count)^2 / expected_count
+      pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
+    },
     
-    Non_Allergenic_p_value = if (Non_Allergenic_Common_Base == "-") NA else binom.test(
-      x = sum(non_allergenic_matrix[, Position] == Non_Allergenic_Common_Base, na.rm = TRUE),
-      n = nrow(non_allergenic_matrix),
-      p = aa_background_frequencies[Non_Allergenic_Common_Base]
-    )$p.value
+    # Non-Allergenic Chi-Square Test
+    Non_Allergenic_p_value = if (Non_Allergenic_Common_Base == "-") NA else {
+      observed_count <- sum(non_allergenic_matrix[, Position] == Non_Allergenic_Common_Base, na.rm = TRUE)
+      expected_count <- nrow(non_allergenic_matrix) * aa_background_frequencies[Non_Allergenic_Common_Base]
+      chi_square_stat <- (observed_count - expected_count)^2 / expected_count
+      pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
+    }
   ) %>%
   ungroup()
+
 
 # Add residue variability (Residue_Count) to the database
 different_bases_refined1 <- different_bases_refined1 %>%
