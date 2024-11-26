@@ -7,6 +7,7 @@
 #msa
 #tidyverse
 
+
 #____________________________________________________________________________________________
 #Load MSA
 tropomyosin_msa <- readAAStringSet("~/Documents/School/Fall 2024/BIOL 469/Genomics Final Project /Final Work /Tropomyosin_MSA_Edit .fst")
@@ -20,6 +21,7 @@ BLOUSM62 <- data("BLOSUM62")
 
 #Define Gap score 
 gap_score <- -1
+
 
 #Function for conservation 
 calculate_conservation <- function(msa_set) {
@@ -68,6 +70,7 @@ calculate_conservation <- function(msa_set) {
   return(list(Conservation = conservation, CommonResidues = common_residues))
 }
 
+
 #Apply Function 
 result_allergenic <- calculate_conservation(allergenic_msa)
 results_non_allergenic <- calculate_conservation(non_allergenic_msa)
@@ -107,6 +110,7 @@ calculate_residue_frequencies <- function(msa_set) {
   
   return(residue_frequencies)
 }
+
 
 #Calculate residue Frequency 
 non_alergenic_frequency <- calculate_residue_frequencies (non_allergenic_msa)
@@ -198,21 +202,22 @@ different_bases_refined1 <- different_bases_refined1 %>%
     Non_Allergenic_Residue_Count = map_int(Position, ~ n_distinct(non_allergenic_matrix[, .]))
   )
 
-#add p value diffrence 
+#add diff conservation  
 different_bases_refined1 <- different_bases_refined1 %>%
   mutate(
-    p_value_difference = Allergenic_p_value - Non_Allergenic_p_value
+    Conservation_value_difference = Allergenic_Conservation - Non_Allergenic_Conservation
   )
 
-# Set p_value_difference
-p_value_diff_threshold <- quantile(different_bases_refined1$p_value_difference, 0.25, na.rm = TRUE)
+#set conservation threshold differences 
+conservation_value_diffrence_thresh <- quantile(different_bases_refined1$Conservation_value_difference, 0.75, na.rm = TRUE)
 
 #Set Blousm Threshold 
 Blosum_threshold <- quantile(different_bases_refined1$BLOSUM62_Score, 0.25, na.rm = TRUE)
 
-#filter on regions with low blosum and low p vlaue diff 
+
+#filter on regions with low blosum and high conservation diff 
 significant_positions1 <- different_bases_refined1 %>%
-  filter(p_value_difference <= p_value_diff_threshold, BLOSUM62_Score <= Blosum_threshold)
+  filter(Conservation_value_difference >= conservation_value_diffrence_thresh, BLOSUM62_Score <= Blosum_threshold) 
 
 
 #set window size 
@@ -252,10 +257,14 @@ Significant_sequences_df1$Position <- as.numeric(gsub("Position_", "", Significa
 # Join with different_bases_refined to add the p-value - arrange by this 
 Significant_sequences_df1 <- Significant_sequences_df1 %>%
   left_join(
-    different_bases_refined1 %>% select(Position, Allergenic_p_value),  # Select relevant columns
+    different_bases_refined1 %>% select(Position, Allergenic_p_value, Allergenic_Residue_Count, Non_Allergenic_Residue_Count),  # Select relevant columns
     by = "Position"  # Match by Position
   )
+
+view(Significant_sequences_df1)
+
 #_______________________________________________________________________________________
+
 #plotting 
 
 #Differential Conservation 
@@ -290,7 +299,8 @@ ggplot(Diff_Conservation_clean, aes(x = Position, y = Conservation, color = Grou
     legend.text = element_text(size = 12)              # Legend text size
   )
 
-#plot diff conservation at regiosn with diffrent most common base 
+
+#plot diff conservation at regions with different most common base 
 diff_base_conservation <- Diff_Conservation_clean |>
   filter(Diff_Conservation_clean$Base_match == FALSE)
 
