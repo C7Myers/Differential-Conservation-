@@ -1,0 +1,410 @@
+
+#change all the seqlength ot matrix 
+
+# Function to calculate consensus sequence (didnt like the other one) # can play around with the threshold - set low for a blast?
+consensus_sequence <- function(msa_set, threshold = 0.9) {
+  # Convert to matrix format for easier handling
+  msa_matrix <- as.matrix(msa_set)
+  num_sequences <- nrow(msa_matrix)
+  sequence_length <- ncol(msa_matrix)
+  
+  # Initialize vector to store consensus sequence
+  consensus <- character(sequence_length)
+  
+  for (pos in 1:sequence_length) {
+    # Get the amino acids at the current position
+    residues <- msa_matrix[, pos]
+    
+    # Find the most common amino acid and its frequency at this position
+    pos_aa_counts <- table(residues)
+    most_common_residue <- names(which.max(pos_aa_counts))
+    most_common_frequency <- max(pos_aa_counts) / sum(pos_aa_counts)
+    
+    # Skip position if most common residue is a gap
+    if (most_common_residue == "-") {
+      consensus[pos] <- "-"  # Include gap for position alignment
+      next  # Skip to the next position
+    }
+    
+    # Check if the frequency exceeds the threshold
+    if (most_common_frequency >= threshold) {
+      consensus[pos] <- most_common_residue  # Store the most common residue
+    } else {
+      # Assign ambiguity codes directly based on residue combinations
+      if ("D" %in% names(pos_aa_counts) && "N" %in% names(pos_aa_counts)) {
+        consensus[pos] <- "B"
+      } else if ("E" %in% names(pos_aa_counts) && "Q" %in% names(pos_aa_counts)) {
+        consensus[pos] <- "Z"
+      } else if ("L" %in% names(pos_aa_counts) && "I" %in% names(pos_aa_counts)) {
+        consensus[pos] <- "J"
+      } else {
+        consensus[pos] <- "X"  # General ambiguity
+      }
+    }
+  }
+  
+  # Assign names to the consensus vector for positions
+  names(consensus) <- 1:sequence_length
+  
+  # Return the consensus sequence both as a named vector and a single string
+  return(list(
+    ConsensusString = paste(consensus, collapse = ""),
+    ConsensusVector = consensus
+  ))
+}
+#___________________________________________________________________________________________
+
+
+# Function to calculate residue composition for each sequence
+calculate_residue_composition <- function(msa_set, reference_residues = rownames(BLOSUM62)) {
+  # Convert MSA to matrix
+  msa_matrix <- as.matrix(msa_set)
+  
+  # Initialize a named vector for counts with all counts set to 0
+  residue_counts <- setNames(rep(0, length(reference_residues)), reference_residues)
+  
+  # Loop through each residue in the MSA matrix
+  for (seq_index in 1:nrow(msa_matrix)) {
+    for (pos_index in 1:ncol(msa_matrix)) {
+      residue <- msa_matrix[seq_index, pos_index]
+      if (residue %in% reference_residues) {
+        residue_counts[residue] <- residue_counts[residue] + 1
+      }
+    }
+  }
+  
+  # Calculate total residues to determine percent composition
+  total_residues <- sum(residue_counts)
+  
+  # Convert the residue counts to a data frame and add percent composition
+  residue_composition_df <- data.frame(
+    Residue = names(residue_counts),
+    Count = as.numeric(residue_counts),
+    Percent_Composition = (as.numeric(residue_counts) / total_residues) * 100
+  )
+  
+  return(residue_composition_df)
+}
+
+
+#___________________________________________________________________________________________
+
+
+#Function for conservation, commom residue, common residue frequency   #could be repalced now kinda 
+calculate_conservation <- function(msa_set) {
+  # Convert to matrix format for easier handling
+  msa_matrix <- as.matrix(msa_set)
+  num_sequences <- nrow(msa_matrix)
+  sequence_length <- ncol(msa_matrix)
+  
+  # Initialize vectors to store conservation scores and most common residues
+  conservation <- numeric(sequence_length)
+  common_residues <- character(sequence_length)  # For storing the most common residues
+  most_common_frequencies <- numeric(sequence_length)  # For storing the frequency of the most common residues
+  
+  # Calculate conservation for each position using BLOSUM scores, including gaps
+  for (pos in 1:sequence_length) {
+    # Get the amino acids at the current position (already uppercase assumed)
+    residues <- msa_matrix[, pos]
+    
+    # Find the most common amino acid and its frequency at this position
+    pos_aa_counts <- table(residues)
+    most_common_residue <- names(which.max(pos_aa_counts))
+    most_common_frequency <- max(pos_aa_counts) / sum(pos_aa_counts)
+    
+    # Store the most common residue and frequency for this position
+    common_residues[pos] <- most_common_residue
+    most_common_frequencies[pos] <- most_common_frequency
+    
+    # Skip position if the most common residue is not in BLOSUM62 (e.g., if it's a gap)
+    if (!(most_common_residue %in% colnames(BLOSUM62))) next
+    
+    # Initialize the cumulative score for this position
+    score <- 0
+    
+    # Use ifelse to handle BLOSUM score or gap score
+    for (residue in residues) {
+      # Calculate score based on whether residue is in BLOSUM62
+      score <- score + ifelse(
+        residue %in% colnames(BLOSUM62),
+        BLOSUM62[most_common_residue, residue],  # BLOSUM score for valid amino acids
+        gap_score  # Custom score for gaps
+      )
+    }
+    
+    # Normalize by the number of sequences to get an average score
+    conservation[pos] <- score / num_sequences
+  }
+  
+  # Return both conservation scores and most common residues as a list
+  return(list(Conservation = conservation, CommonResidues = common_residues, MostCommonFrequencies = most_common_frequencies))
+}
+
+#___________________________________________________________________________________________
+
+#compare_residue_composition 
+
+compare_residue_composition <- function(allergenic_msa, non_allergenic_msa) {
+  # Calculate residue composition for each group using the existing function
+  allergenic_composition <- calculate_residue_composition(allergenic_msa)
+  non_allergenic_composition <- calculate_residue_composition(non_allergenic_msa)
+  
+  # Combine the compositions into a single dataframe for plotting
+  residue_composition <- data.frame(
+    Residue = rownames(BLOSUM62),
+    Allergenic = allergenic_composition$Percent_Composition,
+    Non_Allergenic = non_allergenic_composition$Percent_Composition
+  )
+  
+  # Transform the dataframe to a long format for plotting
+  residue_composition_long <- residue_composition %>%
+    pivot_longer(
+      cols = c(Allergenic, Non_Allergenic),
+      names_to = "Group",
+      values_to = "Composition"
+    )
+  
+  # Generate the plot
+  residue_composition_plot <- ggplot(residue_composition_long, aes(x = Residue, y = Composition, group = Group, color = Group)) +
+    geom_line() +
+    labs(
+      title = "Residue Composition Comparison",
+      x = "Residue",
+      y = "Composition (%)"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 20, hjust = 0.5),  # Title size and centering
+      axis.title = element_text(size = 15),              # Axis title sizes
+      axis.text = element_text(size = 12),               # Axis text sizes
+      legend.title = element_text(size = 15),            # Legend title size
+      legend.text = element_text(size = 12)              # Legend text size
+    )
+  
+  # Return the plot and data
+  return(list(
+    Data = residue_composition,
+    Plot = residue_composition_plot
+  ))
+}
+
+
+#differential_conservation_analysis
+
+differential_conservation_analysis <- function(allergenic_msa, non_allergenic_msa, BLOSUM62, gap_score = -1) {
+  # Calculate conservation for each group
+  allergenic_results <- calculate_conservation(allergenic_msa)
+  non_allergenic_results <- calculate_conservation(non_allergenic_msa)
+  
+  # Combine conservation into a dataframe
+  conservation_df <- data.frame(
+    Position = seq_len(length(allergenic_results$Conservation)),
+    Allergenic_Conservation = allergenic_results$Conservation,
+    Non_Allergenic_Conservation = non_allergenic_results$Conservation,
+    Allergenic_Common_Base = allergenic_results$CommonResidues,
+    Non_Allergenic_Common_Base = non_allergenic_results$CommonResidues
+  )
+  
+  # Pivot the dataframe to long format for plotting
+  conservation_long <- conservation_df %>%
+    pivot_longer(
+      cols = c(Allergenic_Conservation, Non_Allergenic_Conservation),
+      names_to = "Group",
+      values_to = "Conservation",
+      names_pattern = "(.*)_Conservation",
+      names_transform = list(Group = ~ recode(., "Allergenic" = "Allergenic", "Non_Allergenic" = "Non-Allergenic"))
+    )
+  
+  # Filter out gaps
+  conservation_clean <- conservation_long %>%
+    filter(Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
+  
+  # Generate the plot
+  conservation_plot <- ggplot(conservation_clean, aes(x = Position, y = Conservation, color = Group)) +
+    geom_line() +
+    labs(
+      title = "Conservation Scores by Position",
+      x = "Position",
+      y = "Conservation Score"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 20, hjust = 0.5),  # Title size and centering
+      axis.title = element_text(size = 15),              # Axis title sizes
+      axis.text = element_text(size = 12),               # Axis text sizes
+      legend.title = element_text(size = 15),            # Legend title size
+      legend.text = element_text(size = 12)              # Legend text size
+    )
+  
+  # Return the cleaned dataframe and plot
+  return(list(
+    Data = conservation_clean,
+    Plot = conservation_plot
+  ))
+}
+
+
+#differential_base_analysis
+
+
+differential_base_analysis <- function(allergenic_conservation, allergenic_common_residues,
+                                       non_allergenic_conservation, non_allergenic_common_residues,
+                                       BLOSUM62) {
+  # Create the initial dataframe
+  data <- data.frame(
+    Position = seq_len(length(allergenic_conservation)),
+    Allergenic_Conservation = allergenic_conservation,
+    Allergenic_Common_Base = allergenic_common_residues,
+    Non_Allergenic_Conservation = non_allergenic_conservation,
+    Non_Allergenic_Common_Base = non_allergenic_common_residues,
+    Base_match = allergenic_common_residues == non_allergenic_common_residues  # TRUE if residues match, FALSE otherwise
+  )
+  
+  # Filter for positions with different residues
+  different_bases <- data %>% filter(Base_match == FALSE)
+  
+  # Add BLOSUM62 scores
+  different_bases <- different_bases %>%
+    mutate(
+      BLOSUM62_Score = mapply(function(allergenic_residue, non_allergenic_residue) {
+        if (allergenic_residue %in% colnames(BLOSUM62) && non_allergenic_residue %in% rownames(BLOSUM62)) {
+          BLOSUM62[allergenic_residue, non_allergenic_residue]
+        } else {
+          NA  # Handle cases where the residue is missing in BLOSUM62
+        }
+      }, Allergenic_Common_Base, Non_Allergenic_Common_Base)
+    )
+  
+  # Filter out gaps
+  different_bases_clean <- different_bases %>%
+    filter(Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
+  
+  # Plot BLOSUM62 scores
+  blosum_plot <- ggplot(different_bases_clean, aes(x = Position, y = BLOSUM62_Score)) +
+    geom_line(colour = "red") +
+    labs(
+      title = "BLOSUM62 Scores at Positions with Different Residues",
+      x = "Position in Protein Sequence",
+      y = "BLOSUM62 Score"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      axis.title = element_text(size = 14),
+      axis.text = element_text(size = 12),
+      legend.position = "none"
+    )
+  
+  # Return the cleaned dataframe and the plot
+  return(list(
+    Data = different_bases_clean,
+    Plot = blosum_plot
+  ))
+}
+
+
+
+# analyze_number of residues for regions with diff most common residue 
+
+analyze_number_of_residues <- function(allergenic_common_residues, non_allergenic_common_residues, 
+                                        allergenic_matrix, non_allergenic_matrix) {
+  library(dplyr)
+  library(ggplot2)
+  library(purrr)
+  
+  # Filter for positions with different residues and no gaps
+  Different_bases <- data.frame(
+    Position = seq_len(length(Allergenic_Common_Base)),
+    Allergenic_Common_Base = Allergenic_Common_Base,
+    Non_Allergenic_Common_Base = Non_Allergenic_Common_Base,
+    Base_match = Allergenic_Common_Base == Non_Allergenic_Common_Base
+  ) %>%
+    filter(Base_match == FALSE & Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
+  
+  # Compute the number of residues at each position
+  residue_counts <- Different_bases %>%
+    mutate(
+      Allergenic_Unique_Residues = map_int(Position, ~ n_distinct(allergenic_matrix[, .])),
+      Non_Allergenic_Unique_Residues = map_int(Position, ~ n_distinct(non_allergenic_matrix[, .]))
+    )
+  
+  # Analyze residue frequencies for allergenic
+  residue_counts_allergenic_analysis <- residue_counts %>%
+    mutate(
+      Residue_Category = case_when(
+        Allergenic_Unique_Residues == 1 ~ "1",
+        Allergenic_Unique_Residues == 2 ~ "2",
+        Allergenic_Unique_Residues == 3 ~ "3",
+        Allergenic_Unique_Residues > 3 ~ "3+"
+      )
+    ) %>%
+    group_by(Residue_Category) %>%
+    summarize(Count = n()) %>%
+    mutate(Percentage = Count / sum(Count) * 100)
+  
+  # Analyze residue frequencies for non-allergenic
+  residue_counts_non_allergenic_analysis <- residue_counts %>%
+    mutate(
+      Residue_Category = case_when(
+        Non_Allergenic_Unique_Residues == 1 ~ "1",
+        Non_Allergenic_Unique_Residues == 2 ~ "2",
+        Non_Allergenic_Unique_Residues == 3 ~ "3",
+        Non_Allergenic_Unique_Residues > 3 ~ "3+"
+      )
+    ) %>%
+    group_by(Residue_Category) %>%
+    summarize(Count = n()) %>%
+    mutate(Percentage = Count / sum(Count) * 100)
+  
+  # Create pie chart for allergenic
+  pie_allergenic <- ggplot(residue_counts_allergenic_analysis, aes(x = "", y = Percentage, fill = Residue_Category)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0) +
+    labs(
+      title = "Residue Frequency Categories in Allergenic Tropomyosin"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      panel.grid = element_blank(),
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      legend.position = "none"
+    ) +
+    geom_text(
+      aes(label = paste0(round(Percentage, 1), "%")),
+      position = position_stack(vjust = 0.5),
+      size = 4,
+      color = "black"
+    )
+  
+  # Create pie chart for non-allergenic
+  pie_non_allergenic <- ggplot(residue_counts_non_allergenic_analysis, aes(x = "", y = Percentage, fill = Residue_Category)) +
+    geom_bar(width = 1, stat = "identity", color = "white") +
+    coord_polar("y", start = 0) +
+    labs(
+      title = "Residue Frequency Categories in Non-Allergenic Tropomyosin"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      panel.grid = element_blank(),
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      legend.position = "none"
+    ) +
+    geom_text(
+      aes(label = paste0(round(Percentage, 1), "%")),
+      position = position_stack(vjust = 0.5),
+      size = 4,
+      color = "black"
+    )
+  
+  # Return results
+  return(list(
+    Residue_Counts_Allergenic = residue_counts_allergenic_analysis,
+    Residue_Counts_Non_Allergenic = residue_counts_non_allergenic_analysis,
+    Plot_Allergenic = pie_allergenic,
+    Plot_Non_Allergenic = pie_non_allergenic
+  ))
+}
