@@ -1,14 +1,8 @@
-#load packages 
-#BiocVersion 
-#BiocManager 
-#biostrings 
-#dblyr
-#ggplot2
-#msa
-#tidyverse
-
 
 #____________________________________________________________________________________________
+                                            #Pre-Analysis  
+#____________________________________________________________________________________________
+
 #Load MSA
 tropomyosin_msa <- readAAStringSet("~/Documents/School/Fall 2024/BIOL 469/Genomics Final Project /Final Work /Tropomyosin_MSA_Edit .fst")
 
@@ -16,62 +10,54 @@ tropomyosin_msa <- readAAStringSet("~/Documents/School/Fall 2024/BIOL 469/Genomi
 allergenic_msa <- tropomyosin_msa [1:18]
 non_allergenic_msa <- tropomyosin_msa [19:34]
 
+#make allergenic and non allergenic formats into usable formats 
+
+allergenic_matrix <- as.matrix(allergenic_msa)
+non_allergenic_matrix <- as.matrix(non_allergenic_msa) 
+
 #read in BLOUSM62
 BLOUSM62 <- data("BLOSUM62")
 
 #Define Gap score 
 gap_score <- -1
 
-
-#Function for conservation 
-calculate_conservation <- function(msa_set) {
-  # Convert to matrix format for easier handling
-  msa_matrix <- as.matrix(msa_set)
-  num_sequences <- nrow(msa_matrix)
-  sequence_length <- ncol(msa_matrix)
-  
-  # Initialize vectors to store conservation scores and most common residues
-  conservation <- numeric(sequence_length)
-  common_residues <- character(sequence_length)  # For storing the most common residues
-  
-  # Calculate conservation for each position using BLOSUM scores, including gaps
-  for (pos in 1:sequence_length) {
-    # Get the amino acids at the current position (already uppercase assumed)
-    residues <- msa_matrix[, pos]
-    
-    # Find the most common amino acid at this position
-    pos_aa_counts <- table(residues)
-    most_common_residue <- names(which.max(pos_aa_counts))
-    
-    # Store the most common residue for this position
-    common_residues[pos] <- most_common_residue
-    
-    # Skip position if the most common residue is not in BLOSUM62 (e.g., if it's a gap)
-    if (!(most_common_residue %in% colnames(BLOSUM62))) next
-    
-    # Initialize the cumulative score for this position
-    score <- 0
-    
-    # Use ifelse to handle BLOSUM score or gap score
-    for (residue in residues) {
-      # Calculate score based on whether residue is in BLOSUM62
-      score <- score + ifelse(
-        residue %in% colnames(BLOSUM62),
-        BLOSUM62[most_common_residue, residue],  # BLOSUM score for valid amino acids
-        gap_score  # Custom score for gaps
-      )
-    }
-    
-    # Normalize by the number of sequences to get an average score
-    conservation[pos] <- score / num_sequences
-  }
-  
-  # Return both conservation scores and most common residues as a list
-  return(list(Conservation = conservation, CommonResidues = common_residues))
-}
+#load helper fucntions 
+source("~/Documents/School/Fall 2024/BIOL 469/Genomics Final Project /Final Work /Helper Fucntions.R")
 
 
-#Apply Function 
+#Build a allergenic consensus sequence to determine what vertabrate form is most similar for comparison 
+Allergenic_consensus <- consensus_sequence(allergenic_msa, threshold = 0.80)
+
+# Remove all gaps ("-") - not informative - took longest isoforms
+filtered_consensus <- gsub("-", "", Allergenic_consensus)
+
+print(filtered_consensus)
+
+#____________________________________________________________________________________________
+                                        #Analysis 
+#____________________________________________________________________________________________
+
+#Residue Composition allergenic vs non allergenic 
+
+Residue_composition <- (compare_residue_composition(allergenic_msa, non_allergenic_msa))
+Residue_composition$Plot
+
+
+#Differential Conservation 
+
+Conservation_diffrences <- differential_conservation_analysis(allergenic_msa, non_allergenic_msa)
+Conservation_diffrences$Plot
+
+
+
+#____________________________________________________________________________________________
+          #Assessing biochemical significance of different most common residue 
+#____________________________________________________________________________________________
+
+
+#Blousm Score between position whit different most common base 
+
+#Calculate conservation, and store values for the next fucnion 
 result_allergenic <- calculate_conservation(allergenic_msa)
 results_non_allergenic <- calculate_conservation(non_allergenic_msa)
 
@@ -83,68 +69,37 @@ non_allergenic_conservation <- results_non_allergenic$Conservation
 allergenic_common_residues <- result_allergenic$CommonResidues
 non_allergenic_common_residues <- results_non_allergenic$CommonResidues
 
+#store most common residue frequency for each MSA 
+allergenic_common_residues_frequency <- result_allergenic$MostCommonFrequencies
+non_allergenic_common_residues_frequency <- results_non_allergenic$MostCommonFrequencies
 
-#___________________________________________________________________________________________
-
-#Fucntion for residue Frequency 
-calculate_residue_frequencies <- function(msa_set) {
-  # Convert MSA to matrix for easier handling
-  msa_matrix <- as.matrix(msa_set)
-  sequence_length <- ncol(msa_matrix)
-  
-  # Initialize a list to store residue frequencies at each position
-  residue_frequencies <- vector("list", length = sequence_length)
-  
-  # Calculate frequencies for each position
-  for (pos in 1:sequence_length) {
-    # Get residues at the current position
-    residues <- msa_matrix[, pos]
-    
-    # Calculate the frequency of each residue
-    pos_aa_counts <- table(residues)
-    pos_aa_frequencies <- pos_aa_counts / sum(pos_aa_counts)  # Normalize to get frequencies
-    
-    # Store frequencies in the list
-    residue_frequencies[[pos]] <- pos_aa_frequencies
-  }
-  
-  return(residue_frequencies)
-}
+#Plot the BLOUSM62 scores at positions with different most common residues 
+Different_base_compostion_BLOUSM <- differential_base_analysis(allergenic_conservation, allergenic_common_residues,
+                                                               non_allergenic_conservation, non_allergenic_common_residues,
+                                                               BLOSUM62)
+Different_base_compostion_BLOUSM$Plot
 
 
-#Calculate residue Frequency 
-non_alergenic_frequency <- calculate_residue_frequencies (non_allergenic_msa)
-alergenic_frequency <-  calculate_residue_frequencies (allergenic_msa)
+#____________________________________________________________________________________________
+             #Filter on Positions in different bases and extract surrounding regions 
+#____________________________________________________________________________________________
 
-#Make Dataframes for residue frequency 
 
-non_allergen_freq_df <- do.call(rbind, lapply(seq_along(non_alergenic_frequency), function(pos) {
-  freq <- non_alergenic_frequency[[pos]]
-  data.frame(Position = pos, Residue = names(freq), Frequency = as.numeric(freq))
-}))
+#build data frame for analysis 
 
-allergen_freq_df <- do.call(rbind, lapply(seq_along(alergenic_frequency), function(pos) {
-  freq <- alergenic_frequency[[pos]]
-  data.frame(Position = pos, Residue = names(freq), Frequency = as.numeric(freq))
-}))
-
-#________________________________________________________________________________________________
-
-#Define positions 
-positions <- seq_len(length(allergenic_conservation))
-
-#make data frame 
-data <- data.frame(
-  Position = positions,
-  Allergenic_Conservation = allergenic_conservation,
-  Allergenic_Common_Base = allergenic_common_residues,
-  Non_Allergenic_Conservation = non_allergenic_conservation,
-  Non_Allergenic_Common_Base = non_allergenic_common_residues,
+Significant_positions <- data.frame(
+  Position = seq_len(ncol(allergenic_matrix)), 
+  Allergenic_Common_Residue = allergenic_common_residues,
+  Non_Allergenic_Common_Residue = non_allergenic_common_residues,
+  Allergenic_frequecny = allergenic_common_residues_frequency,
+  Non_allergenic_frequency = non_allergenic_common_residues_frequency,
   Base_match = allergenic_common_residues == non_allergenic_common_residues  # TRUE if residues match, FALSE otherwise
-)
-
-#add BLOUSM62 score for most common residues in each group 
-data <- data %>%
+) |> #remove gaps and select where most common residue is different 
+  filter(Base_match == FALSE & Allergenic_Common_Residue != "-" & Non_Allergenic_Common_Residue != "-") |>
+  mutate(
+    Allergenic_Unique_Residues = map_int(Position, ~ n_distinct(allergenic_matrix[, .])),
+    Non_Allergenic_Unique_Residues = map_int(Position, ~ n_distinct(non_allergenic_matrix[, .]))
+  ) |> #add BLOUSM62 
   mutate(
     BLOSUM62_Score = mapply(function(allergenic_residue, non_allergenic_residue) {
       if (allergenic_residue %in% colnames(BLOSUM62) && non_allergenic_residue %in% rownames(BLOSUM62)) {
@@ -152,16 +107,15 @@ data <- data %>%
       } else {
         NA  # Handle cases where the residue is missing in BLOSUM62
       }
-    }, Allergenic_Common_Base, Non_Allergenic_Common_Base)
-  )
+    }, Allergenic_Common_Residue, Non_Allergenic_Common_Residue)
+  ) |>
+  # Calculate Weighted Score
+  mutate(
+    Weighted_Score = Allergenic_frequecny * BLOSUM62_Score
+  ) 
 
-#print new dataset 
+score_threshold <-quantile(Significant_positions$Weighted_Score, 0.25, na.rm = TRUE)
 
-write.csv(data, "Tropomyosin_Comparison_edit.csv", row.names = FALSE)
-view(Tropomyosin_Comparison_edit)
-
-#filter on diff bases 
-different_bases <- Tropomyosin_Comparison_edit[Tropomyosin_Comparison_edit$Base_match == FALSE, ]
 
 #Background frquencis of amino acids 
 aa_background_frequencies <- c(
@@ -172,70 +126,40 @@ aa_background_frequencies <- c(
   C = 1.31 / 100, I = 5.50 / 100, P = 5.03 / 100, V = 6.84 / 100
 )
 
-#make allergenic and non allergenic formats into usable formats 
-
-allergenic_matrix <- as.matrix(allergenic_msa)
-non_allergenic_matrix <- as.matrix(non_allergenic_msa)
-
 # Add p-value calculation using background frequencies
-different_bases_refined1 <- different_bases %>%
+Significant_positions <- Significant_positions %>%
   rowwise() %>%
   mutate(
     # Allergenic Chi-Square Test
-    Allergenic_p_value = if (Allergenic_Common_Base == "-") NA else {
-      observed_count <- sum(allergenic_matrix[, Position] == Allergenic_Common_Base, na.rm = TRUE)
-      expected_count <- nrow(allergenic_matrix) * aa_background_frequencies[Allergenic_Common_Base]
+    Allergenic_p_value = if (Allergenic_Common_Residue == "-") NA else {
+      observed_count <- sum(allergenic_matrix[, Position] == Allergenic_Common_Residue, na.rm = TRUE)
+      expected_count <- nrow(allergenic_matrix) * aa_background_frequencies[Allergenic_Common_Residue]
       chi_square_stat <- (observed_count - expected_count)^2 / expected_count
       pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
     },
     
     # Non-Allergenic Chi-Square Test
-    Non_Allergenic_p_value = if (Non_Allergenic_Common_Base == "-") NA else {
-      observed_count <- sum(non_allergenic_matrix[, Position] == Non_Allergenic_Common_Base, na.rm = TRUE)
-      expected_count <- nrow(non_allergenic_matrix) * aa_background_frequencies[Non_Allergenic_Common_Base]
+    Non_Allergenic_p_value = if (Non_Allergenic_Common_Residue == "-") NA else {
+      observed_count <- sum(non_allergenic_matrix[, Position] == Non_Allergenic_Common_Residue, na.rm = TRUE)
+      expected_count <- nrow(non_allergenic_matrix) * aa_background_frequencies[Non_Allergenic_Common_Residue]
       chi_square_stat <- (observed_count - expected_count)^2 / expected_count
       pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
     }
   ) %>%
   ungroup()
 
-
-# Add residue variability (Residue_Count) to the database
-different_bases_refined1 <- different_bases_refined1 %>%
-  mutate(
-    Allergenic_Residue_Count = map_int(Position, ~ n_distinct(allergenic_matrix[, .])),
-    Non_Allergenic_Residue_Count = map_int(Position, ~ n_distinct(non_allergenic_matrix[, .]))
-  )
-
-#add diff conservation  
-different_bases_refined1 <- different_bases_refined1 %>%
-  mutate(
-    Conservation_value_difference = Allergenic_Conservation - Non_Allergenic_Conservation
-  )
-
-#set conservation threshold differences 
-conservation_value_diffrence_thresh <- quantile(different_bases_refined1$Conservation_value_difference, 0.75, na.rm = TRUE)
-
-#Set Blousm Threshold 
-Blosum_threshold <- quantile(different_bases_refined1$BLOSUM62_Score, 0.25, na.rm = TRUE)
-
-
-#filter on regions with low blosum and high conservation diff 
-significant_positions1 <- different_bases_refined1 %>%
-  filter(Conservation_value_difference >= conservation_value_diffrence_thresh, BLOSUM62_Score <= Blosum_threshold) 
-
-
-#set window size 
+Significant_positions_filtered <- Significant_positions |> 
+  filter(Significant_positions$Weighted_Score <= score_threshold)
 
 window_size <- 5
 
 #sliding window analysis 
 
 #Initialize a list to store the sequences around each dip
-Significant_sequences1 <- list()
+Significant_sequences <- list()
 
 # Loop through each position in the significant dips
-for (pos in significant_positions1$Position) {
+for (pos in Significant_positions_filtered$Position) {
   # Calculate start and end positions for the window, ensuring we stay within bounds
   start <- max(1, pos - window_size)  # Start of window
   end <- min(length(allergenic_common_residues), pos + window_size)  # End of window
@@ -244,107 +168,26 @@ for (pos in significant_positions1$Position) {
   surrounding_residues <- allergenic_common_residues[start:end]
   
   # Store the result as a string in the list with position as a key
-  Significant_sequences1[[paste("Position", pos, sep = "_")]] <- paste(surrounding_residues, collapse = "")
+  Significant_sequences[[paste("Position", pos, sep = "_")]] <- paste(surrounding_residues, collapse = "")
 }
 
 # Print or examine the list of context sequences around each dip
-print(Significant_sequences1)
+print(Significant_sequences)
 
-Significant_sequences_df1 <- data.frame(
-  Position = names(Significant_sequences1),  # Positions as row names
-  Sequence = unlist(Significant_sequences1) # Sequences from the list
+Significant_sequences_df <- data.frame(
+  Position = names(Significant_sequences),  # Positions as row names
+  Sequence = unlist(Significant_sequences) # Sequences from the list
 )
 
 #clean up 
-Significant_sequences_df1$Position <- as.numeric(gsub("Position_", "", Significant_sequences_df1$Position))
+Significant_sequences_df$Position <- as.numeric(gsub("Position_", "", Significant_sequences_df$Position))
 
 
 # Join with different_bases_refined to add the p-value - arrange by this 
-Significant_sequences_df1 <- Significant_sequences_df1 %>%
+Significant_sequences_df <- Significant_sequences_df %>%
   left_join(
-    different_bases_refined1 %>% select(Position, Allergenic_p_value, Allergenic_Residue_Count, Non_Allergenic_Residue_Count),  # Select relevant columns
+    Significant_positions_filtered %>% select(Position, Allergenic_p_value, Allergenic_Unique_Residues, Non_Allergenic_Unique_Residues, BLOSUM62_Score),  # Select relevant columns
     by = "Position"  # Match by Position
   )
 
-view(Significant_sequences_df1)
-
-#_______________________________________________________________________________________
-
-#plotting 
-
-#Differential Conservation 
-
-Diff_Conservation <- Tropomyosin_Comparison_edit %>%
-  pivot_longer(
-    cols = c(Allergenic_Conservation, Non_Allergenic_Conservation),
-    names_to = "Group",
-    values_to = "Conservation",
-    names_pattern = "(.*)_Conservation",  # Removes "_Conservation" suffix
-    names_transform = list(Group = ~ recode(., "Allergenic" = "Allergenic", "Non_Allergenic" = "Non-Allergenic"))
-  ) %>%
-  select(Position, Group, Conservation, Allergenic_Common_Base, Non_Allergenic_Common_Base, Base_match)  # Select 
-
-#filter out gaps
-
-Diff_Conservation_clean <- Diff_Conservation_clean %>%
-  filter(Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
-
-#diff conservation 
-ggplot(Diff_Conservation_clean, aes(x = Position, y = Conservation, color = Group)) +
-  geom_line() +
-  labs(title = "Conservation Scores by Position",
-       x = "Position",
-       y = "Conservation Score") +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 20, hjust = 0.5),  # Title size and centering
-    axis.title = element_text(size = 15),              # Axis title sizes
-    axis.text = element_text(size = 12),               # Axis text sizes
-    legend.title = element_text(size = 15),            # Legend title size
-    legend.text = element_text(size = 12)              # Legend text size
-  )
-
-
-#plot diff conservation at regions with different most common base 
-diff_base_conservation <- Diff_Conservation_clean |>
-  filter(Diff_Conservation_clean$Base_match == FALSE)
-
-ggplot(diff_base_conservation, aes(x = Position, y = Conservation, color = Group)) +
-  geom_line() +
-  labs(title = "Conservation Scores by Position With Different Most Common Base",
-       x = "Position",
-       y = "Conservation Score") +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 20, hjust = 0.5),  # Title size and centering
-    axis.title = element_text(size = 15),              # Axis title sizes
-    axis.text = element_text(size = 12),               # Axis text sizes
-    legend.title = element_text(size = 15),            # Legend title size
-    legend.text = element_text(size = 12)              # Legend text size
-  )
-
-#remove gaps from diff bases data 
-
-diff_bases_refined_clean <- different_bases_refined1 |>
-  filter(Allergenic_Common_Base != "-" & Non_Allergenic_Common_Base != "-")
-
-# Plot BLOSUM62 scores for positions with different most common bases
-ggplot(diff_bases_refined_clean, aes(x = Position, y = BLOSUM62_Score)) +
-  geom_line(colour = "red") +
-  labs(
-    title = "BLOSUM62 Scores at Positions with Different Residues",
-    x = "Position in Protein Sequence",
-    y = "BLOSUM62 Score"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    axis.title = element_text(size = 14),
-    axis.text = element_text(size = 12),
-    legend.position = "none"
-  )
-
-
-
-
-
+view(Significant_sequences_df)
