@@ -408,3 +408,76 @@ analyze_number_of_residues <- function(allergenic_common_residues, non_allergeni
     Plot_Non_Allergenic = pie_non_allergenic
   ))
 }
+
+
+
+#add P values 
+
+Add_p_values <- function (Significant_positions, allergenic_matrix, non_allergenic_matrix) {
+  Significant_positions <- Significant_positions %>%
+    rowwise() %>%
+    mutate(
+      # Allergenic Chi-Square Test
+      Allergenic_p_value = if (Allergenic_Common_Residue == "-") NA else {
+        observed_count <- sum(allergenic_matrix[, Position] == Allergenic_Common_Residue, na.rm = TRUE)
+        expected_count <- nrow(allergenic_matrix) * aa_background_frequencies[Allergenic_Common_Residue]
+        chi_square_stat <- (observed_count - expected_count)^2 / expected_count
+        pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
+      },
+      
+      # Non-Allergenic Chi-Square Test
+      Non_Allergenic_p_value = if (Non_Allergenic_Common_Residue == "-") NA else {
+        observed_count <- sum(non_allergenic_matrix[, Position] == Non_Allergenic_Common_Residue, na.rm = TRUE)
+        expected_count <- nrow(non_allergenic_matrix) * aa_background_frequencies[Non_Allergenic_Common_Residue]
+        chi_square_stat <- (observed_count - expected_count)^2 / expected_count
+        pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
+      }
+    ) %>%
+    ungroup()
+  # Return the final dataframe
+  return(Significant_positions)
+}
+
+
+#sliding_window_analysis
+
+sliding_window_analysis <- function(significant_positions, allergenic_residues, window_size, score_threshold) {
+  
+  Significant_positions_filtered <- Significant_positions |> 
+    filter(Significant_positions$Weighted_Score <= score_threshold)  # Causes an error
+  
+  # Initialize a list to store the sequences around each significant position
+  significant_sequences <- list()
+  
+  # Loop through each position in the significant positions
+  for (pos in Significant_positions_filtered$Position) {
+    # Calculate start and end positions for the window, ensuring bounds are respected
+    start <- max(1, pos - window_size)  # Start of window
+    end <- min(length(allergenic_residues), pos + window_size)  # End of window
+    
+    # Extract the residues within the window
+    surrounding_residues <- allergenic_residues[start:end]
+    
+    # Store the result as a string in the list with position as a key
+    significant_sequences[[paste("Position", pos, sep = "_")]] <- paste(surrounding_residues, collapse = "")
+  }
+  
+  # Convert the list to a data frame
+  significant_sequences_df <- data.frame(
+    Position = names(significant_sequences),  # Positions as row names
+    Sequence = unlist(significant_sequences) # Sequences from the list
+  )
+  
+  # Clean up the Position column
+  significant_sequences_df$Position <- as.numeric(gsub("Position_", "", significant_sequences_df$Position))
+  
+  # Join with the significant positions dataframe to add additional data
+  significant_sequences_df <- significant_sequences_df %>%
+    left_join(
+      significant_positions %>% select(Position, Allergenic_p_value, Allergenic_Unique_Residues, Non_Allergenic_Unique_Residues, BLOSUM62_Score),  # Select relevant columns
+      by = "Position"  # Match by Position
+    )
+  
+  # Return the final dataframe
+  return(significant_sequences_df)
+}
