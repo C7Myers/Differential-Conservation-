@@ -1,7 +1,5 @@
 
-#change all the seqlength ot matrix 
-
-# Function to calculate consensus sequence (didnt like the other one) # can play around with the threshold - set low for a blast?
+# Function to calculate consensus sequence # can play around with the threshold - set low for a blast?
 consensus_sequence <- function(msa_set, threshold = 0.9) {
   # Convert to matrix format for easier handling
   msa_matrix <- as.matrix(msa_set)
