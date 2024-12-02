@@ -79,7 +79,6 @@ Different_base_compostion_BLOUSM <- differential_base_analysis(allergenic_conser
                                                                BLOSUM62)
 Different_base_compostion_BLOUSM$Plot
 
-
 #____________________________________________________________________________________________
              #Filter on Positions in different bases and extract surrounding regions 
 #____________________________________________________________________________________________
@@ -127,67 +126,9 @@ aa_background_frequencies <- c(
 )
 
 # Add p-value calculation using background frequencies
-Significant_positions <- Significant_positions %>%
-  rowwise() %>%
-  mutate(
-    # Allergenic Chi-Square Test
-    Allergenic_p_value = if (Allergenic_Common_Residue == "-") NA else {
-      observed_count <- sum(allergenic_matrix[, Position] == Allergenic_Common_Residue, na.rm = TRUE)
-      expected_count <- nrow(allergenic_matrix) * aa_background_frequencies[Allergenic_Common_Residue]
-      chi_square_stat <- (observed_count - expected_count)^2 / expected_count
-      pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
-    },
-    
-    # Non-Allergenic Chi-Square Test
-    Non_Allergenic_p_value = if (Non_Allergenic_Common_Residue == "-") NA else {
-      observed_count <- sum(non_allergenic_matrix[, Position] == Non_Allergenic_Common_Residue, na.rm = TRUE)
-      expected_count <- nrow(non_allergenic_matrix) * aa_background_frequencies[Non_Allergenic_Common_Residue]
-      chi_square_stat <- (observed_count - expected_count)^2 / expected_count
-      pchisq(chi_square_stat, df = 1, lower.tail = FALSE)  # Calculate p-value
-    }
-  ) %>%
-  ungroup()
 
-Significant_positions_filtered <- Significant_positions |> 
-  filter(Significant_positions$Weighted_Score <= score_threshold)
-
-window_size <- 5
+Significant_positions <- Add_p_values(Significant_positions, allergenic_matrix, non_allergenic_matrix)
 
 #sliding window analysis 
 
-#Initialize a list to store the sequences around each dip
-Significant_sequences <- list()
-
-# Loop through each position in the significant dips
-for (pos in Significant_positions_filtered$Position) {
-  # Calculate start and end positions for the window, ensuring we stay within bounds
-  start <- max(1, pos - window_size)  # Start of window
-  end <- min(length(allergenic_common_residues), pos + window_size)  # End of window
-  
-  # Extract the residues within the window from the allergenic most common residues
-  surrounding_residues <- allergenic_common_residues[start:end]
-  
-  # Store the result as a string in the list with position as a key
-  Significant_sequences[[paste("Position", pos, sep = "_")]] <- paste(surrounding_residues, collapse = "")
-}
-
-# Print or examine the list of context sequences around each dip
-print(Significant_sequences)
-
-Significant_sequences_df <- data.frame(
-  Position = names(Significant_sequences),  # Positions as row names
-  Sequence = unlist(Significant_sequences) # Sequences from the list
-)
-
-#clean up 
-Significant_sequences_df$Position <- as.numeric(gsub("Position_", "", Significant_sequences_df$Position))
-
-
-# Join with different_bases_refined to add the p-value - arrange by this 
-Significant_sequences_df <- Significant_sequences_df %>%
-  left_join(
-    Significant_positions_filtered %>% select(Position, Allergenic_p_value, Allergenic_Unique_Residues, Non_Allergenic_Unique_Residues, BLOSUM62_Score),  # Select relevant columns
-    by = "Position"  # Match by Position
-  )
-
-view(Significant_sequences_df)
+Significant_sequences_df <- sliding_window_analysis(Significant_positions, allergenic_common_residues, window_size, score_threshold)
